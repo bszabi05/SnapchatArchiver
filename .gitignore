@@ -1,0 +1,17 @@
+## Visual Studio 
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet 
+packages/
+*.nupkg
+
+## Others
+download_history.txt
+Snapchat_Archivum/
+*.tmp
