@@ -2,36 +2,22 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Runtime.InteropServices;
 
 namespace SnapchatArchiver
 {
     public partial class MainForm : Form
     {
-        [DllImport("dwmapi.dll")]
-        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
-
-        private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
-
-        private void EnableDarkMode(IntPtr handle)
-        {
-            try
-            {
-                int darkMode = 1;
-                DwmSetWindowAttribute(handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, sizeof(int));
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("DWM hiba: " + ex.Message);
-            }
-        }
+      
 
         private string selectedZipPath = "";
         private string historyFile = "download_history.txt";
@@ -41,22 +27,25 @@ namespace SnapchatArchiver
         public MainForm()
         {
             InitializeComponent();
-            EnableDarkMode(this.Handle);
-            UpdateLanguage(); 
-            if (File.Exists(historyFile)){
+            ThemeManager.ApplyDarkMode(this.Handle);
+            UpdateLanguage();
+            if (File.Exists(historyFile))
+            {
                 history = new HashSet<string>(File.ReadAllLines(historyFile));
 
             }
         }
 
-       
+
         private void button1_Click(object sender, EventArgs e)
         {
-            using (OpenFileDialog ofd = new OpenFileDialog()) {
+            using (OpenFileDialog ofd = new OpenFileDialog())
+            {
                 ofd.InitialDirectory = "c:\\";
                 ofd.Filter = _lang[MsgKey.FileFilter];
 
-                if (ofd.ShowDialog() == DialogResult.OK) { 
+                if (ofd.ShowDialog() == DialogResult.OK)
+                {
                     selectedZipPath = ofd.FileName;
                     txbPath.Text = selectedZipPath;
                     Log(string.Format(_lang[MsgKey.SelectedFileLog], Path.GetFileName(selectedZipPath)));
@@ -67,7 +56,8 @@ namespace SnapchatArchiver
 
         private async void button2_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(selectedZipPath) || !File.Exists(selectedZipPath)) {
+            if (string.IsNullOrEmpty(selectedZipPath) || !File.Exists(selectedZipPath))
+            {
                 MessageBox.Show(_lang[MsgKey.SelectZipError]);
                 return;
             }
@@ -85,10 +75,11 @@ namespace SnapchatArchiver
                     Directory.Delete(extractPath, true);
                 }
 
-                await Task.Run(() => ZipFile.ExtractToDirectory(selectedZipPath,extractPath));
-
-                string htmlPath = Path.Combine(extractPath, "html","memories_history.html");
-                if (!File.Exists(htmlPath)) {
+                await Task.Run(() => ZipHandler.ExtractMainArchive(selectedZipPath, extractPath));
+                
+                string htmlPath = Path.Combine(extractPath, "html", "memories_history.html");
+                if (!File.Exists(htmlPath))
+                {
                     Log(_lang[MsgKey.InvalidZipError]);
                     return;
                 }
@@ -104,76 +95,91 @@ namespace SnapchatArchiver
                 client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
                 client.Timeout = TimeSpan.FromMinutes(5);
 
+                var parser = new SnapchatArchiver.SnapData();
+
                 foreach (var row in rows)
                 {
-                    var cols = row.SelectNodes("td");
-                    if (cols == null || cols.Count < 4) continue;
+                    var metadata = SnapData.ParseSnapRow(row);
 
-                    string rawDate = cols[0].InnerText.Trim();
-                    string mediaType = cols[1].InnerText.Trim().ToLower();
-
-                    var linkNode = cols[3].SelectSingleNode(".//a[contains(@onclick, 'downloadMemories')]");
-
-                    if (linkNode == null)
+                    if (metadata == null || string.IsNullOrEmpty(metadata.DownloadUrl))
                     {
-                        linkNode = row.SelectSingleNode(".//a[contains(@onclick, 'downloadMemories')]");
+                        continue;
                     }
 
-                    if (linkNode != null)
+
+                    if (history.Contains(metadata.DownloadUrl))
                     {
-                        string onclick = linkNode.GetAttributeValue("onclick", "");
-                        var match = Regex.Match(onclick, @"downloadMemories\('([^']+)'");
+                        continue;
+                    }
 
-                        if (match.Success)
+                    string mediaType = metadata.Type.ToLower();
+                    string dateSafe = Sanitize(metadata.Date.ToString("yyyy-MM-dd HH_mm_ss"));
+                    string baseName = $"{dateSafe}_{mediaType}";
+
+                    try
+                    {
+                        Log(string.Format(_lang[MsgKey.Downloading], baseName));
+
+                        var response = await client.GetAsync(metadata.DownloadUrl, HttpCompletionOption.ResponseHeadersRead); 
+                        if (!response.IsSuccessStatusCode)
                         {
-                            string url = match.Groups[1].Value;
+                            Log(string.Format(_lang[MsgKey.ServerError], response.StatusCode, baseName));
+                            continue;
+                        }
 
-                            if (history.Contains(url)) continue;
+                        var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
+                        byte[] data = await response.Content.ReadAsByteArrayAsync();
 
-                            string dateSafe = Sanitize(rawDate);
-                            string baseName = $"{dateSafe}_{mediaType}";
+                        string tempFile = Path.Combine(outputPath, "download.tmp");
+                        Downloader.SaveToFile(tempFile, data);
 
-                            try
+                        string finalImagePath = "";
+                        string overlayPath = "";
+
+                        if (contentType.Contains("zip") || metadata.DownloadUrl.Contains(".zip"))
+                        {
+                            ZipHandler.HandleZipMedia(tempFile, baseName, outputPath);
+                            finalImagePath = Path.Combine(outputPath, baseName + ".jpg");
+                            overlayPath = Path.Combine(outputPath, baseName + "_overlay.png");
+                        }
+                        else
+                        {
+                            string ext = (mediaType.Contains("video") || contentType.Contains("video")) ? ".mp4" : ".jpg";
+                            finalImagePath = Path.Combine(outputPath, baseName + ext);
+
+                            if (File.Exists(finalImagePath))
                             {
-                                Log(string.Format(_lang[MsgKey.Downloading], baseName));
-
-                                var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
-                                if (!response.IsSuccessStatusCode)
-                                {
-                                    Log(string.Format(_lang[MsgKey.ServerError], response.StatusCode, baseName));
-                                    continue;
-                                }
-
-                                var contentType = response.Content.Headers.ContentType?.MediaType ?? "";
-                                byte[] data = await response.Content.ReadAsByteArrayAsync();
-
-                                string tempFile = Path.Combine(outputPath, "download.tmp");
-                                File.WriteAllBytes(tempFile, data);
-
-                                if (contentType.Contains("zip") || url.Contains(".zip"))
-                                {
-                                    HandleZipMedia(tempFile, baseName);
-                                }
-                                else
-                                {
-                                    string ext = (mediaType.Contains("video") || contentType.Contains("video")) ? ".mp4" : ".jpg";
-                                    string finalPath = Path.Combine(outputPath, baseName + ext);
-
-                                    if (File.Exists(finalPath)) File.Delete(finalPath);
-                                    File.Move(tempFile, finalPath);
-                                }
-
-                                File.AppendAllLines(historyFile, new[] { url });
-                                history.Add(url);
-                                Log(string.Format(_lang[MsgKey.SuccessMemory], baseName));
+                                File.Delete(finalImagePath);
                             }
-                            catch (Exception ex)
+                            File.Move(tempFile, finalImagePath);
+                            if (ext == ".mp4")
                             {
-                                Log(string.Format(_lang[MsgKey.DownloadError], baseName, ex.Message));
+                                SnapData.ProcessVideoFinal(finalImagePath, metadata);
                             }
                         }
+
+                        if (finalImagePath.ToLower().EndsWith(".jpg") && File.Exists(finalImagePath))
+                        {
+                            SnapData.ProcessImageFinal(finalImagePath, overlayPath, metadata);
+
+                            if (!string.IsNullOrEmpty(overlayPath) && File.Exists(overlayPath))
+                            {
+                                File.Delete(overlayPath);
+                            }
+                        }
+                        if (File.Exists(tempFile)) {
+                            File.Delete(tempFile);
+                        }
+                        File.AppendAllLines(historyFile, new[] { metadata.DownloadUrl });
+                        history.Add(metadata.DownloadUrl);
+                        Log(string.Format(_lang[MsgKey.SuccessMemory], baseName));
                     }
-                    
+                    catch (Exception ex)
+                    {
+                        Log(string.Format(_lang[MsgKey.DownloadError], baseName, ex.Message));
+                        continue;
+                    }
+
                 }
 
                 if (Directory.Exists(extractPath))
@@ -185,7 +191,7 @@ namespace SnapchatArchiver
                 MessageBox.Show(_lang[MsgKey.ProcessFinished], _lang[MsgKey.MessageBoxSuccessTitle], MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Log(string.Format(_lang[MsgKey.CriticalError], ex.Message));
             }
@@ -196,30 +202,7 @@ namespace SnapchatArchiver
             }
         }
 
-        private void HandleZipMedia(string zipFile, string baseName)
-        {
-            string subExtract = Path.Combine(outputPath, "temp_sub");
-            if (Directory.Exists(subExtract))
-            {
-                Directory.Delete(subExtract, true);
-            }
-            ZipFile.ExtractToDirectory(zipFile, subExtract);
-
-            foreach (var file in Directory.GetFiles(subExtract, "*.*", SearchOption.AllDirectories))
-            {
-                string ext = Path.GetExtension(file).ToLower();
-                string finalName = (ext == ".png") ? $"{baseName}_overlay.png" : $"{baseName}{ext}";
-
-                string targetPath = Path.Combine(outputPath, finalName);
-                if (File.Exists(targetPath))
-                {
-                    File.Delete(targetPath);
-                }
-                File.Move(file, targetPath);
-            }
-            Directory.Delete(subExtract, true);
-            File.Delete(zipFile);
-        }
+       
 
         private void Log(string text)
         {
@@ -229,9 +212,9 @@ namespace SnapchatArchiver
             }
             else
             {
-                lsbLog.Items.Insert(0,$"{DateTime.Now:HH:mm:ss} - {text}");
+                lsbLog.Items.Insert(0, $"{DateTime.Now:HH:mm:ss} - {text}");
             }
-            
+
         }
 
         private string Sanitize(string text)
@@ -267,7 +250,9 @@ namespace SnapchatArchiver
             btnHU.BackColor = Color.FromArgb(45, 45, 45);
             btnHU.ForeColor = Color.White;
         }
+
+
+        
+
     }
-
-
 }
