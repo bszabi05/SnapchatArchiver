@@ -1,4 +1,4 @@
-# 👻 Snapchat Archiver 
+# 👻 Snapchat Archiver
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue.svg)](https://www.microsoft.com/windows)
@@ -25,18 +25,18 @@
 2.  Log in with your credentials.
 3.  Scroll down to the **"Export Your Memories"** section.
 4.  Select a date range (or leave "All time" for a full backup).
-5.  Submit the request. 
+5.  Submit the request.
 6.  Wait for the confirmation email from Snapchat. Once it arrives, download the **ZIP** file from the same portal.
 
 ### 2. Using the Archiver
-1.  Go to the [Releases](https://github.com/bszabi05/SnapchatArchiver/releases) page and download the latest `SnapchatArchiver_v1.0.zip`.
+1.  Go to the [Releases](https://github.com/bszabi05/SnapchatArchiver/releases) page and download the latest `SnapchatArchiver_v1.1.zip`.
 2.  Extract the ZIP file to any folder on your PC.
 3.  Launch `SnapchatArchiver.exe`.
 4.  Click the **BROWSE** button and select the ZIP file you received from Snapchat.
 5.  Click **START ARCHIVING** and watch the magic happen!
 
 ### 📂 Where are my files saved?
-All your media content will be saved automatically into a folder named **`Snapchat_Archivum`**. 
+All your media content will be saved automatically into a folder named **`Snapchat_Archivum`**.
 * This folder is created **directly next to the application** (`SnapchatArchiver.exe`).
 * Inside, files are organized and named by date (e.g., `2025-08-13_image.jpg`).
 * The application also creates a `download_history.txt` file to keep track of your progress and prevent duplicates.
@@ -46,8 +46,24 @@ All your media content will be saved automatically into a folder named **`Snapch
 ## 🛠️ Technical Details
 
 * **Framework:** .NET Framework 4.7.2 (WinForms)
-* **Dependencies:** Uses [HtmlAgilityPack](https://www.nuget.org/packages/HtmlAgilityPack/) for efficient HTML parsing.
+* **Dependencies:**
+    * [HtmlAgilityPack](https://www.nuget.org/packages/HtmlAgilityPack/) (HTML Parsing)
+  * [TagLibSharp](https://www.nuget.org/packages/TagLibSharp-NetStandard/) (Video Metadata)
 * **Custom UI:** Implements `DwmSetWindowAttribute` for a native Windows Dark Mode title bar.
+
+---
+
+---
+
+## 🕒 Changelog
+
+### [v1.1.0] - 2026-01-28
+
+* **🎨 Image Overlay Merging:** Automatically "burns" Snapchat stickers, captions, and filters onto the original photos from downloaded assets. No more blank memories!
+* **📍 Metadata Reconstruction:** Restores **EXIF data** (Date Taken) and **GPS coordinates** directly into JPEG files. Your photos will now appear at the correct time and place in any gallery app.
+* **🎥 Video Sync:** Implements filesystem-level timestamp synchronization for MP4 files to preserve chronological order across all devices.
+* **🚀 Performance & Refactor:** Complete architectural overhaul with specialized managers (Downloader, ZipHandler, MediaProcessor) for significantly faster and more stable archiving.
+* **🛡️ Enhanced Error Handling:** Improved protection against file locks, corrupted downloads, and expired Snapchat links.
 
 ---
 
